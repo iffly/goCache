@@ -8,66 +8,61 @@ import (
 	"time"
 )
 
-func Init() {
-	runtime.GOMAXPROCS(runtime.NumCPU())
-}
-
 func main() {
-	Init()
+	runtime.GOMAXPROCS(runtime.NumCPU())
 
-	infoChan := make(chan []string, 1)
-	RefreshCase1("http://baidu.com", infoChan, 10*time.Second, HttpGet)
+	inChan := make(chan interface{}, 1)
+	outChan := make(chan interface{}, 1)
+
+	thrd(inChan, outChan, 1*time.Second, HttpGet)
+	inChan <- "http://www.google.com/test.html"
 
 	for {
 		select {
-		case infos := <-infoChan:
-			fmt.Println(infos)
+		case bodys := <-outChan:
+			fmt.Println(bodys.(string))
 		}
 	}
 }
 
-func RefreshCase1(in string, out chan []string, invl time.Duration, handle func(string) []string) {
+func thrd(in chan interface{}, out chan interface{},
+	invl time.Duration, handle func(interface{}) interface{}) {
+	var info interface{}
 	go func() {
 		for {
-			now := time.Now()
-
-			ret := handle(in)
-			out <- ret
-
-			duration := time.Since(now)
-			if duration < invl {
-				<-time.NewTimer(invl).C
-			} else {
-				fmt.Println("timeout")
+			select {
+			case info = <-in:
+				out <- handle(info)
+			case <-time.NewTimer(invl).C:
+				out <- handle(info)
 			}
 		}
 	}()
 }
 
-func HttpGet(url string) (infos []string) {
+func HttpGet(url interface{}) (infos interface{}) {
 	cli := &http.Client{
-		Timeout: 5 * time.Second,
+		Timeout: 1 * time.Second,
 	}
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("GET", url.(string), nil)
 	if err != nil {
-		fmt.Println(err)
-		return
+		fmt.Println("Failed to new", err)
+		return ""
 	}
 
 	rsp, err := cli.Do(req)
 	if err != nil {
-		fmt.Println(err)
-		return
+		fmt.Println("Failed to do", err)
+		return ""
 	}
 	defer rsp.Body.Close()
 
 	body, err := ioutil.ReadAll(rsp.Body)
 	if err != nil {
-		fmt.Println(err)
-		return
+		fmt.Println("Failed to read", err)
+		return ""
 	}
 
-	infos = []string{string(body)}
-	return
+	return string(body)
 }
